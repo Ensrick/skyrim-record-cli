@@ -4,12 +4,12 @@
     "net9.0": {
       "Mutagen.Bethesda.Skyrim": {
         "type": "Direct",
-        "requested": "[0.54.2, )",
-        "resolved": "0.54.2",
-        "contentHash": "PVmrsavS4Nuhhz0B3Us6KQK/tbLVgYwOijbygXFtx8CHi3YGqj+zgQpos7vyUgMEt0P2N3DMOoHQrSd7Xjv3Tg==",
+        "requested": "[0.54.3, )",
+        "resolved": "0.54.3",
+        "contentHash": "j1X/kqy1/O6qJYL1yluD9GwjV+RQiFDg9UsniHR512kdy+SBdDnSId+u5wdX5FUjyVaL/nDMfTt9QGO2P5W9kw==",
         "dependencies": {
           "Loqui": "3.7.0",
-          "Mutagen.Bethesda.Core": "0.54.2",
+          "Mutagen.Bethesda.Core": "0.54.3",
           "Noggog.CSharpExt": "4.3.0"
         }
       },
@@ -151,15 +151,15 @@
       },
       "Mutagen.Bethesda.Core": {
         "type": "Transitive",
-        "resolved": "0.54.2",
-        "contentHash": "2NIs/FCIjGCnXw/zpiQZt01RLbbBJ0mk1wDQcEmj8N7OEO3Z3nPT+8OV37ZI7KkEImLyxfkxZq6XIKwfv2DHPA==",
+        "resolved": "0.54.3",
+        "contentHash": "ut/Jur6MRlUHX9jSBMBBCdv7UJFRkTJDjanJQZCa6wxxmFHVbaGzk50hBefPtmzXZWCchU6J+7fIB1ojHIxKcw==",
         "dependencies": {
           "GameFinder.StoreHandlers.GOG": "4.9.0",
           "GameFinder.StoreHandlers.Steam": "4.9.0",
           "GameFinder.StoreHandlers.Xbox": "4.9.0",
           "K4os.Compression.LZ4.Streams": "1.3.8",
           "Loqui": "3.7.0",
-          "Mutagen.Bethesda.Kernel": "0.54.2",
+          "Mutagen.Bethesda.Kernel": "0.54.3",
           "Noggog.CSharpExt": "4.3.0",
           "SharpZipLib": "1.4.2",
           "StrongInject": "1.4.4",
@@ -170,8 +170,8 @@
       },
       "Mutagen.Bethesda.Kernel": {
         "type": "Transitive",
-        "resolved": "0.54.2",
-        "contentHash": "6XRTFaU/euyAg15XRe07MhR8ENIGEZuWthPiSFnUDOIhr7zA4PYNWqomN+z4X5Xo++Vf7ZLjwzaYDgibHROeUw==",
+        "resolved": "0.54.3",
+        "contentHash": "LCOOzGMrqQf/wwoarvMQQaUeZbvsfUYGdfIkJr6FZbrBn1QQpNzs6XRpBFfFMwZiWQXfxSio2dGXUZJ+B4zVeA==",
         "dependencies": {
           "Noggog.CSharpExt": "4.3.0"
         }

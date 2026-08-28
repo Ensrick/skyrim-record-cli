@@ -5,3 +5,7 @@ exports weapon balance fields as JSON Lines so modded records can be compared ag
 the installed game's actual masters instead of relying on wiki tables or memory.
 The `audit-links` command resolves every form link in a plugin against its master and
 the plugin itself, failing if a removed or malformed record leaves a dangling link.
+The `plugin-info` command reports declared masters and a record-type inventory as
+JSON without requiring xEdit or a graphical application.
+The `records` command emits a stable JSON Lines inventory of every major record for
+headless comparisons between plugin revisions and patches.

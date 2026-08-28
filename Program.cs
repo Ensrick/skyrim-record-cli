@@ -62,6 +62,40 @@ if (args.Length == 3 && args[0] == "audit-links")
     return unresolved.Count == 0 ? 0 : 2;
 }
 
+if (args.Length == 2 && args[0] == "plugin-info")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        plugin = Path.GetFileName(args[1]),
+        masters = plugin.ModHeader.MasterReferences
+            .Select(reference => reference.Master.FileName.String)
+            .ToArray(),
+        records = plugin.EnumerateMajorRecords().Count(),
+        recordTypes = plugin.EnumerateMajorRecords()
+            .GroupBy(record => record.GetType().Name)
+            .OrderBy(group => group.Key)
+            .ToDictionary(group => group.Key, group => group.Count()),
+    }));
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "records")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    foreach (var record in plugin.EnumerateMajorRecords()
+                 .OrderBy(record => record.FormKey.ID))
+    {
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            formKey = record.FormKey.ToString(),
+            type = record.GetType().Name.Replace("BinaryOverlay", string.Empty),
+            editorId = record.EditorID,
+        }));
+    }
+    return 0;
+}
+
 if (args.Length == 2 && args[0] == "scan-weapons")
 {
     var paths = Directory.EnumerateFiles(args[1])
@@ -85,7 +119,7 @@ if (args.Length == 2 && args[0] == "scan-weapons")
 
 if (args.Length != 2 || args[0] != "weapons")
 {
-    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>");
+    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>");
     return 1;
 }
 

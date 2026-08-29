@@ -1,6 +1,98 @@
 using System.Text.Json;
+using System.Collections;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Plugins.Records;
+
+object? SummarizeValue(object? value, int depth = 0)
+{
+    if (value is null) return null;
+    var type = value.GetType();
+    if (value is string || type.IsPrimitive || type.IsEnum || value is decimal)
+        return type.IsEnum ? value.ToString() : value;
+    if (depth >= 2) return value.ToString();
+    if (value is IEnumerable enumerable)
+    {
+        var items = new List<object?>();
+        foreach (var item in enumerable)
+        {
+            items.Add(SummarizeValue(item, depth + 1));
+            if (items.Count == 64)
+            {
+                items.Add("<truncated>");
+                break;
+            }
+        }
+        return items;
+    }
+
+    var properties = type.GetProperties()
+        .Where(property => property.CanRead
+            && property.GetIndexParameters().Length == 0
+            && property.Name is not ("TopCell" or "SubCells" or "Registration" or "MetaInterfaceMap"))
+        .OrderBy(property => property.Name, StringComparer.Ordinal);
+    var result = new SortedDictionary<string, object?>(StringComparer.Ordinal);
+    foreach (var property in properties)
+    {
+        try
+        {
+            result[property.Name] = SummarizeValue(property.GetValue(value), depth + 1);
+        }
+        catch (Exception exception)
+        {
+            result[property.Name] = $"<unreadable: {exception.GetType().Name}>";
+        }
+    }
+    return result.Count == 0 ? value.ToString() : result;
+}
+
+string RecordTypeName(IMajorRecordGetter record) =>
+    record.GetType().Name.Replace("BinaryOverlay", string.Empty);
+
+object RecordFields(IMajorRecordGetter record, string plugin) => new
+{
+    plugin,
+    formKey = record.FormKey.ToString(),
+    type = RecordTypeName(record),
+    editorId = record.EditorID,
+    fields = SummarizeValue(record),
+};
+
+object SelectedRecordFields(
+    IMajorRecordGetter record,
+    string plugin,
+    IReadOnlyCollection<string> selectedFields)
+{
+    var fields = new SortedDictionary<string, object?>(StringComparer.Ordinal);
+    var properties = record.GetType().GetProperties()
+        .Where(property => property.CanRead && property.GetIndexParameters().Length == 0)
+        .ToDictionary(property => property.Name, StringComparer.OrdinalIgnoreCase);
+    foreach (var field in selectedFields.OrderBy(field => field, StringComparer.Ordinal))
+    {
+        if (!properties.TryGetValue(field, out var property))
+        {
+            fields[field] = "<field-not-found>";
+            continue;
+        }
+        try
+        {
+            // Match the nesting level used when summarizing a complete record;
+            // otherwise link wrapper properties expand into reflection metadata.
+            fields[field] = SummarizeValue(property.GetValue(record), 1);
+        }
+        catch (Exception exception)
+        {
+            fields[field] = $"<unreadable: {exception.GetType().Name}>";
+        }
+    }
+    return new
+    {
+        plugin,
+        formKey = record.FormKey.ToString(),
+        type = RecordTypeName(record),
+        editorId = record.EditorID,
+        fields,
+    };
+}
 
 void EmitWeapons(ISkyrimModGetter mod, string source)
 {
@@ -89,9 +181,66 @@ if (args.Length == 2 && args[0] == "records")
         Console.WriteLine(JsonSerializer.Serialize(new
         {
             formKey = record.FormKey.ToString(),
-            type = record.GetType().Name.Replace("BinaryOverlay", string.Empty),
+            type = RecordTypeName(record),
             editorId = record.EditorID,
         }));
+    }
+    return 0;
+}
+
+if (args.Length == 3 && args[0] == "record-fields")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    var query = args[2];
+    var record = plugin.EnumerateMajorRecords().FirstOrDefault(candidate =>
+        string.Equals(candidate.FormKey.ToString(), query, StringComparison.OrdinalIgnoreCase)
+        || string.Equals(candidate.EditorID, query, StringComparison.OrdinalIgnoreCase));
+    if (record is null)
+    {
+        Console.Error.WriteLine($"Record not found: {query}");
+        return 2;
+    }
+    Console.WriteLine(JsonSerializer.Serialize(
+        RecordFields(record, Path.GetFileName(args[1])),
+        new JsonSerializerOptions { WriteIndented = true }));
+    return 0;
+}
+
+if (args.Length == 3 && args[0] == "record-fields-by-type")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    var query = args[2];
+    var records = plugin.EnumerateMajorRecords()
+        .Where(record => string.Equals(
+            RecordTypeName(record), query, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(record => record.FormKey.ID)
+        .ToArray();
+    foreach (var record in records)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(
+            RecordFields(record, Path.GetFileName(args[1]))));
+    }
+    return 0;
+}
+
+if (args.Length == 4 && args[0] == "record-selected-fields-by-type")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    var query = args[2];
+    var selectedFields = args[3].Split(',', StringSplitOptions.RemoveEmptyEntries)
+        .Select(field => field.Trim())
+        .Where(field => field.Length > 0)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    var records = plugin.EnumerateMajorRecords()
+        .Where(record => string.Equals(
+            RecordTypeName(record), query, StringComparison.OrdinalIgnoreCase))
+        .OrderBy(record => record.FormKey.ID)
+        .ToArray();
+    foreach (var record in records)
+    {
+        Console.WriteLine(JsonSerializer.Serialize(
+            SelectedRecordFields(record, Path.GetFileName(args[1]), selectedFields)));
     }
     return 0;
 }
@@ -119,7 +268,7 @@ if (args.Length == 2 && args[0] == "scan-weapons")
 
 if (args.Length != 2 || args[0] != "weapons")
 {
-    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>");
+    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>\n  skyrim-record-cli record-fields <plugin-path> <FormKey-or-EditorID>\n  skyrim-record-cli record-fields-by-type <plugin-path> <record-type>\n  skyrim-record-cli record-selected-fields-by-type <plugin-path> <record-type> <comma-separated-fields>");
     return 1;
 }
 

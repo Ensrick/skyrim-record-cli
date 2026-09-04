@@ -10,6 +10,17 @@ JSON without requiring xEdit or a graphical application.
 The `records` command emits a stable JSON Lines inventory of every major record for
 headless comparisons between plugin revisions and patches.
 
+The `npc-loadouts` command expands each NPC's direct inventory and default outfit,
+including item counts and resolved record types/editor IDs. Pass master or patch
+plugins after the subject plugin when their linked records also need resolution:
+
+```text
+skyrim-record-cli npc-loadouts <plugin> [record-source ...]
+```
+
+This makes it possible to distinguish an intentionally unarmed actor using race
+attacks from an NPC whose weapon or outfit link was lost, without opening xEdit.
+
 Field inspection is available without opening xEdit:
 
 ```text

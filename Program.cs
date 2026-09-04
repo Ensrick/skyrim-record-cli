@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Collections;
+using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Plugins.Records;
 
@@ -116,6 +117,63 @@ void EmitWeapons(ISkyrimModGetter mod, string source)
             skill = weapon.Data?.Skill.ToString(),
             equipmentType = weapon.EquipmentType.FormKey.ToString(),
             criticalDamage = weapon.Critical?.Damage,
+        }));
+    }
+}
+
+object? DescribeForm(
+    FormKey formKey,
+    IReadOnlyDictionary<FormKey, IMajorRecordGetter> records)
+{
+    if (formKey.IsNull)
+        return null;
+    records.TryGetValue(formKey, out var record);
+    return new
+    {
+        formKey = formKey.ToString(),
+        source = formKey.ModKey.FileName.String,
+        type = record is null ? null : RecordTypeName(record),
+        editorId = record?.EditorID,
+    };
+}
+
+void EmitNpcLoadouts(
+    ISkyrimModGetter subject,
+    string source,
+    IReadOnlyDictionary<FormKey, IMajorRecordGetter> records)
+{
+    foreach (var npc in subject.Npcs.OrderBy(npc => npc.FormKey.ID))
+    {
+        var inventory = npc.Items?
+            .Select(entry => (object)new
+            {
+                item = DescribeForm(entry.Item.Item.FormKey, records),
+                count = entry.Item.Count,
+            })
+            .ToArray() ?? Array.Empty<object>();
+
+        records.TryGetValue(npc.DefaultOutfit.FormKey, out var outfitRecord);
+        var outfit = outfitRecord as IOutfitGetter;
+        var outfitItems = outfit?.Items?
+            .Select(item => DescribeForm(item.FormKey, records))
+            .ToArray() ?? Array.Empty<object>();
+
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            source,
+            formKey = npc.FormKey.ToString(),
+            editorId = npc.EditorID,
+            name = npc.Name?.String,
+            race = DescribeForm(npc.Race.FormKey, records),
+            attackRace = DescribeForm(npc.AttackRace.FormKey, records),
+            combatStyle = DescribeForm(npc.CombatStyle.FormKey, records),
+            template = DescribeForm(npc.Template.FormKey, records),
+            templateFlags = npc.Configuration.TemplateFlags.ToString(),
+            calcMinLevel = npc.Configuration.CalcMinLevel,
+            calcMaxLevel = npc.Configuration.CalcMaxLevel,
+            defaultOutfit = DescribeForm(npc.DefaultOutfit.FormKey, records),
+            outfitItems,
+            inventory,
         }));
     }
 }
@@ -266,9 +324,38 @@ if (args.Length == 2 && args[0] == "scan-weapons")
     return 0;
 }
 
+if (args.Length >= 2 && args[0] == "npc-loadouts")
+{
+    var sources = new List<ISkyrimModGetter>();
+    var disposables = new List<IDisposable>();
+    try
+    {
+        foreach (var path in args.Skip(1))
+        {
+            var source = SkyrimMod.CreateFromBinaryOverlay(path, SkyrimRelease.SkyrimSE);
+            sources.Add(source);
+            if (source is IDisposable disposable)
+                disposables.Add(disposable);
+        }
+
+        var subject = sources[0];
+        var records = sources
+            .SelectMany(mod => mod.EnumerateMajorRecords())
+            .GroupBy(record => record.FormKey)
+            .ToDictionary(group => group.Key, group => group.Last());
+        EmitNpcLoadouts(subject, Path.GetFileName(args[1]), records);
+        return 0;
+    }
+    finally
+    {
+        foreach (var disposable in disposables)
+            disposable.Dispose();
+    }
+}
+
 if (args.Length != 2 || args[0] != "weapons")
 {
-    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>\n  skyrim-record-cli record-fields <plugin-path> <FormKey-or-EditorID>\n  skyrim-record-cli record-fields-by-type <plugin-path> <record-type>\n  skyrim-record-cli record-selected-fields-by-type <plugin-path> <record-type> <comma-separated-fields>");
+    Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>\n  skyrim-record-cli record-fields <plugin-path> <FormKey-or-EditorID>\n  skyrim-record-cli record-fields-by-type <plugin-path> <record-type>\n  skyrim-record-cli record-selected-fields-by-type <plugin-path> <record-type> <comma-separated-fields>\n  skyrim-record-cli npc-loadouts <plugin-path> [record-source-path ...]");
     return 1;
 }
 

@@ -28,7 +28,10 @@ other unrelated data when only record-header fields are under review.
 ```text
 skyrim-record-cli leveled-items <plugin>
 skyrim-record-cli record-links <plugin>
+skyrim-record-cli npc-inventories <plugin>
+skyrim-record-cli outfits <plugin>
 skyrim-record-cli self-test-leveled-items
+skyrim-record-cli self-test-inventories
 ```
 
 `leveled-items` emits every LVLI with exact entry target FormKeys, levels,
@@ -46,3 +49,9 @@ Both commands are read-only, per-plugin JSON Lines. They do not infer the active
 MO2 winner or runtime SkyPatcher changes. Consumers must assemble the current
 ordered winners, apply reviewed runtime deltas, and inspect templates/consumers.
 The self-test uses original synthetic records only.
+
+`npc-inventories` exports exact inventory item/count pairs, unique status,
+template FormKey and flags, and default outfit. `outfits` exports exact outfit
+entries (including leveled-list targets). These disambiguate inventory and
+template edges from unrelated actor links. They do not apply template
+inheritance or runtime scripts: the caller must interpret the current winners.

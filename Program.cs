@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Collections;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Plugins;
 
 object? SummarizeValue(object? value, int depth = 0)
 {
@@ -118,6 +119,173 @@ void EmitWeapons(ISkyrimModGetter mod, string source)
             criticalDamage = weapon.Critical?.Damage,
         }));
     }
+}
+
+string LeveledItemJson(ILeveledItemGetter item, string plugin) =>
+    JsonSerializer.Serialize(new
+    {
+        plugin,
+        type = "LeveledItem",
+        formKey = item.FormKey.ToString(),
+        editorId = item.EditorID,
+        chanceNone = item.ChanceNone.Value,
+        chanceNoneGlobalFormKey = item.Global.FormKey.IsNull ? null : item.Global.FormKey.ToString(),
+        flags = item.Flags.ToString(),
+        entries = item.Entries?.Select(entry => new
+        {
+            level = entry.Data?.Level,
+            count = entry.Data?.Count,
+            referenceFormKey = entry.Data is null || entry.Data.Reference.FormKey.IsNull
+                ? null : entry.Data.Reference.FormKey.ToString(),
+        }).ToArray(),
+    });
+
+string? LinkKey(FormKey key) => key.IsNull ? null : key.ToString();
+
+string NpcInventoryJson(INpcGetter npc, string plugin) => JsonSerializer.Serialize(new
+{
+    plugin,
+    formKey = npc.FormKey.ToString(),
+    editorId = npc.EditorID,
+    unique = npc.Configuration.Flags.HasFlag(NpcConfiguration.Flag.Unique),
+    templateFormKey = LinkKey(npc.Template.FormKey),
+    templateFlags = npc.Configuration.TemplateFlags.ToString(),
+    items = npc.Items?.Select(entry => new
+    {
+        itemFormKey = LinkKey(entry.Item.Item.FormKey),
+        count = entry.Item.Count,
+    }).ToArray(),
+    defaultOutfitFormKey = LinkKey(npc.DefaultOutfit.FormKey),
+});
+
+string OutfitJson(IOutfitGetter outfit, string plugin) => JsonSerializer.Serialize(new
+{
+    plugin,
+    formKey = outfit.FormKey.ToString(),
+    editorId = outfit.EditorID,
+    items = outfit.Items?.Select(item => LinkKey(item.FormKey)).ToArray(),
+});
+
+if (args.Length == 1 && args[0] == "self-test-inventories")
+{
+    var npc = new Npc(FormKey.Factory("000800:Synthetic.esp"), SkyrimRelease.SkyrimSE);
+    npc.EditorID = "SyntheticActor";
+    npc.Configuration.Flags = NpcConfiguration.Flag.Unique;
+    npc.Configuration.TemplateFlags = NpcConfiguration.TemplateFlag.Inventory;
+    npc.Template.SetTo(FormKey.Factory("000900:Synthetic.esp"));
+    npc.DefaultOutfit.SetTo(FormKey.Factory("000901:Synthetic.esp"));
+    npc.Items = new();
+    var entry = new ContainerEntry { Item = new ContainerItem { Count = 3 } };
+    entry.Item.Item.SetTo(FormKey.Factory("000902:Synthetic.esp"));
+    npc.Items.Add(entry);
+    using var data = JsonDocument.Parse(NpcInventoryJson(npc, "Synthetic.esp"));
+    var row = data.RootElement;
+    if (!row.GetProperty("unique").GetBoolean()
+        || row.GetProperty("templateFlags").GetString() != "Inventory"
+        || row.GetProperty("templateFormKey").GetString() != "000900:Synthetic.esp"
+        || row.GetProperty("defaultOutfitFormKey").GetString() != "000901:Synthetic.esp"
+        || row.GetProperty("items")[0].GetProperty("itemFormKey").GetString() != "000902:Synthetic.esp"
+        || row.GetProperty("items")[0].GetProperty("count").GetInt32() != 3)
+        throw new InvalidOperationException("NPC inventory/template export failed");
+    var outfit = new Outfit(FormKey.Factory("000901:Synthetic.esp"), SkyrimRelease.SkyrimSE);
+    outfit.Items = new();
+    outfit.Items.Add(new FormLink<IOutfitTargetGetter>(FormKey.Factory("000903:Synthetic.esp")));
+    outfit.Items.Add(new FormLink<IOutfitTargetGetter>(FormKey.Null));
+    using var gear = JsonDocument.Parse(OutfitJson(outfit, "Synthetic.esp"));
+    if (gear.RootElement.GetProperty("items")[0].GetString() != "000903:Synthetic.esp"
+        || gear.RootElement.GetProperty("items")[1].ValueKind != JsonValueKind.Null)
+        throw new InvalidOperationException("Outfit item/null export failed");
+    Console.WriteLine("Synthetic NPC inventory/template and outfit exports passed.");
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "npc-inventories")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    foreach (var npc in plugin.Npcs.OrderBy(npc => npc.FormKey.ToString(), StringComparer.Ordinal))
+        Console.WriteLine(NpcInventoryJson(npc, Path.GetFileName(args[1])));
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "outfits")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    foreach (var outfit in plugin.Outfits.OrderBy(outfit => outfit.FormKey.ToString(), StringComparer.Ordinal))
+        Console.WriteLine(OutfitJson(outfit, Path.GetFileName(args[1])));
+    return 0;
+}
+
+if (args.Length == 1 && args[0] == "self-test-leveled-items")
+{
+    // Original synthetic fixture: no Bethesda or vendor payload required.
+    var item = new LeveledItem(FormKey.Factory("000800:Synthetic.esp"), SkyrimRelease.SkyrimSE);
+    item.EditorID = "SyntheticList";
+    item.ChanceNone = new Noggog.Percent(0.15);
+    item.Flags = LeveledItem.Flag.CalculateFromAllLevelsLessThanOrEqualPlayer;
+    item.Entries = new();
+    var empty = JsonDocument.Parse(LeveledItemJson(item, "Synthetic.esp")).RootElement;
+    if (empty.GetProperty("entries").GetArrayLength() != 0
+        || Math.Abs(empty.GetProperty("chanceNone").GetDouble() - 0.15) > 0.000001)
+        throw new InvalidOperationException("Empty list/chance-none export failed");
+    var target = FormKey.Factory("000ABC:Target.esm");
+    for (var index = 0; index < 70; index++)
+    {
+        var entry = new LeveledItemEntry { Data = new LeveledItemEntryData { Level = 7, Count = 2 } };
+        entry.Data.Reference.SetTo(target);
+        item.Entries.Add(entry);
+    }
+    var json = LeveledItemJson(item, "Synthetic.esp");
+    using var parsed = JsonDocument.Parse(json);
+    var root = parsed.RootElement;
+    var entries = root.GetProperty("entries");
+    if (entries.GetArrayLength() != 70
+        || entries[0].GetProperty("referenceFormKey").GetString() != target.ToString()
+        || entries[0].GetProperty("level").GetInt32() != 7
+        || entries[0].GetProperty("count").GetInt32() != 2
+        || root.GetProperty("formKey").GetString() != item.FormKey.ToString()
+        || !root.GetProperty("flags").GetString()!.Contains("CalculateFromAllLevels"))
+        throw new InvalidOperationException("Exact leveled-item export failed");
+    if (json != LeveledItemJson(item, "Synthetic.esp"))
+        throw new InvalidOperationException("Export is not deterministic");
+    item.Entries.Add(new LeveledItemEntry());
+    using var missing = JsonDocument.Parse(LeveledItemJson(item, "Synthetic.esp"));
+    if (missing.RootElement.GetProperty("entries")[70].GetProperty("referenceFormKey").ValueKind
+        != JsonValueKind.Null)
+        throw new InvalidOperationException("Missing entry data was not represented as null");
+    item.Entries.Add(new LeveledItemEntry { Data = new LeveledItemEntryData() });
+    item.Global.SetTo(FormKey.Factory("000FED:Target.esm"));
+    using var global = JsonDocument.Parse(LeveledItemJson(item, "Synthetic.esp"));
+    if (global.RootElement.GetProperty("entries")[71].GetProperty("referenceFormKey").ValueKind
+        != JsonValueKind.Null
+        || global.RootElement.GetProperty("chanceNoneGlobalFormKey").GetString() != "000FED:Target.esm")
+        throw new InvalidOperationException("Null reference / chance-none global export failed");
+    Console.WriteLine("Synthetic leveled-items tests passed: empty, flags, exact links/levels/counts, 70-entry non-truncation, deterministic, missing-data null.");
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "leveled-items")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    foreach (var item in plugin.LeveledItems.OrderBy(item => item.FormKey.ToString(), StringComparer.Ordinal))
+        Console.WriteLine(LeveledItemJson(item, Path.GetFileName(args[1])));
+    return 0;
+}
+
+if (args.Length == 2 && args[0] == "record-links")
+{
+    using var plugin = SkyrimMod.CreateFromBinaryOverlay(args[1], SkyrimRelease.SkyrimSE);
+    foreach (var record in plugin.EnumerateMajorRecords()
+                 .OrderBy(record => record.FormKey.ToString(), StringComparer.Ordinal))
+        Console.WriteLine(JsonSerializer.Serialize(new
+        {
+            plugin = Path.GetFileName(args[1]),
+            formKey = record.FormKey.ToString(),
+            type = RecordTypeName(record),
+            editorId = record.EditorID,
+            links = record.EnumerateFormLinks().Where(link => !link.FormKey.IsNull)
+                .Select(link => new { formKey = link.FormKey.ToString(), type = link.Type.Name }).ToArray(),
+        }));
+    return 0;
 }
 
 if (args.Length == 3 && args[0] == "audit-links")
@@ -268,6 +436,7 @@ if (args.Length == 2 && args[0] == "scan-weapons")
 
 if (args.Length != 2 || args[0] != "weapons")
 {
+    Console.Error.WriteLine("Distribution graph commands:\n  skyrim-record-cli leveled-items <plugin-path>\n  skyrim-record-cli record-links <plugin-path>\n  skyrim-record-cli npc-inventories <plugin-path>\n  skyrim-record-cli outfits <plugin-path>\n  skyrim-record-cli self-test-leveled-items\n  skyrim-record-cli self-test-inventories");
     Console.Error.WriteLine("Usage:\n  skyrim-record-cli weapons <plugin-path>\n  skyrim-record-cli scan-weapons <data-directory>\n  skyrim-record-cli audit-links <master-path> <plugin-path>\n  skyrim-record-cli plugin-info <plugin-path>\n  skyrim-record-cli records <plugin-path>\n  skyrim-record-cli record-fields <plugin-path> <FormKey-or-EditorID>\n  skyrim-record-cli record-fields-by-type <plugin-path> <record-type>\n  skyrim-record-cli record-selected-fields-by-type <plugin-path> <record-type> <comma-separated-fields>");
     return 1;
 }

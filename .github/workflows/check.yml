@@ -19,3 +19,5 @@ jobs:
           cache-dependency-path: packages.lock.json
       - run: dotnet restore --locked-mode
       - run: dotnet build --configuration Release --no-restore
+      - run: dotnet run --configuration Release --no-build -- self-test-leveled-items
+      - run: dotnet run --configuration Release --no-build -- self-test-inventories
